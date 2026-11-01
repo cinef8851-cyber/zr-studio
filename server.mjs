@@ -54,13 +54,13 @@ const server = http.createServer(async (req, res) => {
         parts.push({inline_data:{mime_type:mimeType,data:b64}});
       }
       const contentsWithCurrent = [...contents,{role:'user',parts}];
-      const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent', {
+      const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
         body: JSON.stringify({ systemInstruction:{parts:[{text:systemPrompt}]}, contents:contentsWithCurrent, generationConfig: { temperature: 0.65, maxOutputTokens: 8192 } }), signal: AbortSignal.timeout(180000)
       });
       const data = await upstream.json();
       if (upstream.ok) generationTimes.push(now);
-      if (!upstream.ok) { res.writeHead(upstream.status === 429 ? 429 : 502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: upstream.status === 429 ? 'Limite temporário da API atingido.' : 'O serviço de IA não conseguiu gerar o projecto. Verifica a chave e tenta novamente.' })); return; }
+      if (!upstream.ok) { console.error('Gemini request failed:', upstream.status, String(data?.error?.status || 'unknown')); const error = upstream.status === 429 ? 'O limite da Gemini foi atingido. Aguarda e tenta novamente.' : upstream.status === 400 ? 'O pedido ou as imagens não foram aceites pela Gemini. Tenta com um pedido menor ou sem imagens.' : upstream.status === 403 || upstream.status === 401 ? 'A chave Gemini não tem acesso. É preciso verificar a configuração no servidor.' : 'O serviço de IA não respondeu como esperado. Tenta novamente.'; res.writeHead(upstream.status === 429 ? 429 : 502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error })); return; }
       if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') { res.writeHead(502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({error:'A geração foi interrompida antes de concluir. Tenta um pedido mais simples.'})); return; }
       const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
       let html = text.replace(/^```(?:html)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
@@ -74,9 +74,10 @@ const server = http.createServer(async (req, res) => {
     const file = await readFile(join(root, relative));
     res.writeHead(200, { ...headers, 'Content-Type': mime[extname(file === undefined ? '' : relative)] || 'application/octet-stream' }); res.end(file);
   } catch (err) {
-    const status = err instanceof SyntaxError ? 400 : 500;
+    console.error('ZR Studio request error:', err?.name || 'Error');
+    const status = err instanceof SyntaxError ? 400 : err?.name === 'TimeoutError' ? 504 : 500;
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
-    res.end(JSON.stringify({ error: status === 400 ? 'Pedido inválido.' : 'Erro ao processar o pedido.' }));
+    res.end(JSON.stringify({ error: status === 400 ? 'Pedido inválido.' : status === 504 ? 'A IA demorou demasiado tempo a responder. Tenta um pedido mais pequeno.' : 'O servidor não conseguiu processar o pedido. Tenta novamente.' }));
   }
 });
 server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`ZR Studio listening on ${process.env.PORT || 3000}`));
