@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { timingSafeEqual, createHash } from 'node:crypto';
+import { timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 
 const root = new URL('./public/', import.meta.url).pathname;
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -21,6 +21,34 @@ const server = http.createServer(async (req, res) => {
     if (!timingSafeEqual(digest(supplied), digest('zr:' + secret))) {
       failedLogins.push(loginNow);
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ZR Studio", charset="UTF-8"', 'Cache-Control':'no-store', 'Content-Type':'text/plain; charset=utf-8' }); res.end('Área privada do ZR Studio.'); return;
+    }
+    if (req.method === 'POST' && req.url === '/api/publish') {
+      const origin = req.headers.origin;
+      if (!origin || !req.headers.host || origin !== `https://${req.headers.host}` && origin !== `http://${req.headers.host}`) { res.writeHead(403, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({error:'Origem não autorizada.'})); return; }
+      const token = process.env.GITHUB_PAGES_TOKEN;
+      if (!token) { res.writeHead(503, { ...headers, 'Content-Type':'application/json' }); res.end(JSON.stringify({error:'Ainda falta ligar o token privado do GitHub Pages no servidor.'})); return; }
+      let raw=''; for await (const chunk of req) { raw+=chunk; if(raw.length>8_000_000) throw new Error('O projecto excede o limite de publicação.'); }
+      const body=JSON.parse(raw||'{}'); const html=String(body.html||'').trim();
+      if(!/^\s*(?:<!doctype\s+html|<html[\s>])/i.test(html)){res.writeHead(400,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'Não há HTML válido para publicar. Gera primeiro uma página.'}));return;}
+      const api='https://api.github.com/repos/cinef8851-cyber/zr-studio';
+      const ghHeaders={'Accept':'application/vnd.github+json','Authorization':`Bearer ${token}`,'X-GitHub-Api-Version':'2026-03-10','Content-Type':'application/json'};
+      const getPages=await fetch(`${api}/pages`,{headers:ghHeaders,signal:AbortSignal.timeout(20000)});
+      let pages;
+      if(getPages.ok){pages=await getPages.json();}
+      else if(getPages.status===404){
+        const create=await fetch(`${api}/pages`,{method:'POST',headers:ghHeaders,body:JSON.stringify({source:{branch:'main',path:'/'},build_type:'legacy'}),signal:AbortSignal.timeout(20000)});
+        if(create.ok){pages=await create.json();}
+        else if(create.status===409){const retry=await fetch(`${api}/pages`,{headers:ghHeaders,signal:AbortSignal.timeout(20000)});if(retry.ok)pages=await retry.json();}
+        if(!pages){const err=await create.json().catch(()=>({}));console.error('GitHub Pages setup failed:',create.status);const text=create.status===403?'O token não tem permissão para activar Pages. Confirma Pages: Read and write e Administration: Read and write.':create.status===422?'O GitHub não aceitou a configuração de Pages. Confirma se o repositório é público e se a branch main existe.':'Não foi possível activar GitHub Pages. Verifica as permissões do token.';res.writeHead(502,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:text}));return;}
+      } else {console.error('GitHub Pages lookup failed:',getPages.status);res.writeHead(502,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'Não consegui verificar o estado do GitHub Pages. Tenta novamente.'}));return;}
+      const slug=`site-${Date.now()}-${randomUUID().slice(0,8)}`;
+      const path=`projects/${slug}/index.html`;
+      const upload=await fetch(`${api}/contents/${path}`,{method:'PUT',headers:ghHeaders,body:JSON.stringify({message:'Publish project from ZR Studio',content:Buffer.from(html,'utf8').toString('base64'),branch:'main'}),signal:AbortSignal.timeout(30000)});
+      const uploaded=await upload.json().catch(()=>({}));
+      if(!upload.ok){console.error('GitHub Pages upload failed:',upload.status);const text=upload.status===401||upload.status===403?'O token não tem permissão Contents: Read and write para enviar o projecto.':'O GitHub recusou o ficheiro. Tenta novamente com uma página mais pequena.';res.writeHead(502,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:text}));return;}
+      const base=(pages?.html_url||'https://cinef8851-cyber.github.io/zr-studio/').replace(/\/$/,'');
+      const url=`${base}/projects/${slug}/`;
+      res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({url,slug,status:'deployment_pending',message:'O GitHub recebeu o projecto. O primeiro deploy pode levar alguns minutos.'}));return;
     }
     if (req.method === 'POST' && req.url === '/api/generate') {
       const origin = req.headers.origin;
