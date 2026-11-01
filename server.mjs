@@ -175,7 +175,7 @@ const server = http.createServer(async (req, res) => {
       const data = await upstream.json();
       if (upstream.ok) generationTimes.push(now);
       if (!upstream.ok) { console.error('Gemini request failed:', upstream.status, String(data?.error?.status || 'unknown')); const error = upstream.status === 429 ? 'O limite da Gemini foi atingido. Aguarda e tenta novamente.' : upstream.status === 400 ? 'O pedido ou as imagens não foram aceites pela Gemini. Tenta com um pedido menor ou sem imagens.' : upstream.status === 403 || upstream.status === 401 ? 'A chave Gemini não tem acesso. É preciso verificar a configuração no servidor.' : 'O serviço de IA não respondeu como esperado. Tenta novamente.'; res.writeHead(upstream.status === 429 ? 429 : 502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error })); return; }
-      if (data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason === 'SAFETY' || data?.candidates?.[0]?.finishReason === 'PROHIBITED_CONTENT') { res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({refusal:'Não posso ajudar a criar ou melhorar uma aplicação destinada a fraude, abuso, dano ou actividade ilegal.'}));return; }
+      if (data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason === 'SAFETY' || data?.candidates?.[0]?.finishReason === 'PROHIBITED_CONTENT') { res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({refusal:'O pedido foi bloqueado pelo filtro de segurança da IA. Se o objectivo for legítimo, explica melhor o contexto e tenta novamente.'}));return; }
       if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') { res.writeHead(502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({error:'A geração foi interrompida antes de concluir. Tenta um pedido mais simples.'})); return; }
       const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
       let output = text.replace(/^```(?:json|html)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
@@ -187,8 +187,8 @@ const server = http.createServer(async (req, res) => {
       stockForAI.forEach((im,i)=>{const marker=`ZR_STOCK_IMAGE_${i}_END`;if(output.includes(marker)){usedStock.push(im);output=output.split(marker).join(im.data);}});
       if (projectBuild) {
         let parsed;
-        try { parsed=JSON.parse(output); } catch { res.writeHead(502,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'A IA não devolveu o projecto micro-SaaS num formato de ficheiros válido. Tenta novamente.'}));return; }
-        if(parsed && typeof parsed.refusal==='string' && parsed.refusal.trim()){res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({refusal:parsed.refusal.trim().slice(0,900)}));return;}
+        try { parsed=JSON.parse(output); } catch { res.writeHead(502,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'A IA não devolveu o projecto num formato de ficheiros válido. Tenta novamente.'}));return; }
+        for (const key of ['refusal','clarification']) if(parsed && typeof parsed[key]==='string' && parsed[key].trim()){res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({[key]:parsed[key].trim().slice(0,900)}));return;}
         const inputFiles=parsed && parsed.files && typeof parsed.files==='object' && !Array.isArray(parsed.files) ? parsed.files : null;
         const safeFiles={};let total=0;
         if (inputFiles) for (const [name,value] of Object.entries(inputFiles).slice(0,30)) {
