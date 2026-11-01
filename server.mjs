@@ -6,16 +6,20 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 const root = new URL('./public/', import.meta.url).pathname;
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
 const generationTimes = [];
+const failedLogins = [];
 const server = http.createServer(async (req, res) => {
   const headers = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'self' https: data: blob:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline'; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" };
   try {
     const secret = process.env.STUDIO_PASSWORD;
     if (!secret || secret.length < 16) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('Acesso desactivado: configura uma senha privada de pelo menos 16 caracteres no servidor.'); return; }
     const auth = req.headers.authorization || '';
+    const loginNow = Date.now(); while (failedLogins.length && loginNow - failedLogins[0] > 60_000) failedLogins.shift();
+    if (failedLogins.length >= 12) { res.writeHead(429, { 'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Aguarda um minuto antes de tentar novamente.'); return; }
     let supplied = '';
     if (auth.startsWith('Basic ')) { try { supplied = Buffer.from(auth.slice(6), 'base64').toString('utf8'); } catch {} }
     const digest = s => createHash('sha256').update(s).digest();
     if (!timingSafeEqual(digest(supplied), digest('zr:' + secret))) {
+      failedLogins.push(loginNow);
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ZR Studio", charset="UTF-8"', 'Cache-Control':'no-store', 'Content-Type':'text/plain; charset=utf-8' }); res.end('Área privada do ZR Studio.'); return;
     }
     if (req.method === 'POST' && req.url === '/api/generate') {
