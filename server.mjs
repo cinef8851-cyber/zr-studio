@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
+import { timingSafeEqual, createHash } from 'node:crypto';
 
 const root = new URL('./public/', import.meta.url).pathname;
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -8,7 +9,18 @@ const generationTimes = [];
 const server = http.createServer(async (req, res) => {
   const headers = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'self' https: data: blob:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline'; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" };
   try {
+    const secret = process.env.STUDIO_PASSWORD;
+    if (!secret || secret.length < 16) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('Acesso desactivado: configura uma senha privada de pelo menos 16 caracteres no servidor.'); return; }
+    const auth = req.headers.authorization || '';
+    let supplied = '';
+    if (auth.startsWith('Basic ')) { try { supplied = Buffer.from(auth.slice(6), 'base64').toString('utf8'); } catch {} }
+    const digest = s => createHash('sha256').update(s).digest();
+    if (!timingSafeEqual(digest(supplied), digest('zr:' + secret))) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ZR Studio", charset="UTF-8"', 'Cache-Control':'no-store', 'Content-Type':'text/plain; charset=utf-8' }); res.end('Área privada do ZR Studio.'); return;
+    }
     if (req.method === 'POST' && req.url === '/api/generate') {
+      const origin = req.headers.origin;
+      if (!origin || !req.headers.host || origin !== `https://${req.headers.host}` && origin !== `http://${req.headers.host}`) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({error:'Origem não autorizada.'})); return; }
       const now = Date.now(); while (generationTimes.length && now - generationTimes[0] > 60_000) generationTimes.shift();
       if (generationTimes.length >= 8) { res.writeHead(429, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Limite local: espera um minuto antes de gerar mais.' })); return; }
       if (!process.env.GEMINI_API_KEY) { res.writeHead(503, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'A chave Gemini ainda não foi configurada no servidor.' })); return; }
@@ -25,6 +37,7 @@ const server = http.createServer(async (req, res) => {
       const data = await upstream.json();
       if (upstream.ok) generationTimes.push(now);
       if (!upstream.ok) { res.writeHead(upstream.status === 429 ? 429 : 502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: upstream.status === 429 ? 'Limite temporário da API atingido.' : 'O serviço de IA não conseguiu gerar o projecto. Verifica a chave e tenta novamente.' })); return; }
+      if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') { res.writeHead(502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({error:'A geração foi interrompida antes de concluir. Tenta um pedido mais simples.'})); return; }
       const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
       const html = text.replace(/^```(?:html)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
       if (!/^\s*(?:<!doctype\s+html|<html[\s>])/i.test(html)) { res.writeHead(502, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'A IA não devolveu HTML válido; tenta reformular a descrição.' })); return; }
