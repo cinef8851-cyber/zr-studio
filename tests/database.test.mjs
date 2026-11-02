@@ -13,7 +13,7 @@ test('rejeita SQL, tipos e identificadores fornecidos sem allow-list', () => {
 });
 
 test('provisiona schema e políticas de linha com RLS fail-closed', async () => {
-  const queries=[];const sql={query:async(text,params)=>{queries.push({text,params});return []}};
+  const queries=[];const sql={query:async(text,params)=>{const query={text,params};queries.push(query);return query},transaction:async(items)=>Promise.all(items)};
   const result=await provisionProjectSchema(sql,{projectId:'project-12345678',projectName:'Demo',spec:{tables:[{name:'contacts',columns:[{name:'email',type:'text'}]}]}});
   assert.equal(result.tables[0],'contacts');
   assert(queries.some(q=>q.text.includes('ENABLE ROW LEVEL SECURITY')));
