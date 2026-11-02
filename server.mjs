@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { timingSafeEqual, createHash } from 'node:crypto';
+import { timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { neon } from '@neondatabase/serverless';
 import { provisionProjectSchema, validateDatabaseSpec } from './database.mjs';
@@ -283,7 +283,7 @@ const server = http.createServer(async (req, res) => {
       if(!handoff.ok){plan=null;clarification=PLAN_FAILURE_TEXT;}
       if(!plan&&!refusal)clarification=PLAN_FAILURE_TEXT;
       if(plan&&complex){plan.features=[handoff.stages[0]];plan.workflow=[handoff.stages[0]];}
-      let planId='';if(plan){planId=crypto.randomUUID();planApprovals.set(planId,{task:idea,kind,complex,stages:handoff.stages,approvedStage:complex?-1:0,expires:Date.now()+30*60_000});for(const [id,ticket] of planApprovals)if(ticket.expires<Date.now())planApprovals.delete(id);}
+      let planId='';if(plan){planId=randomUUID();planApprovals.set(planId,{task:idea,kind,complex,stages:handoff.stages,approvedStage:complex?-1:0,expires:Date.now()+30*60_000});for(const [id,ticket] of planApprovals)if(ticket.expires<Date.now())planApprovals.delete(id);}
       res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({plan,clarification,refusal,databaseSpec,planId,complex,complexityReason:complexity.reason,stages:handoff.stages,mode:'plan-only'}));return;
     }
     if (req.method === 'GET' && req.url === '/api/ai-providers') {

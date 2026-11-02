@@ -15,7 +15,8 @@ export function validateStages(input) {
 
 export function validatePlanHandoff({ plan, complexity, stages, databaseSpecValid = true }) {
   const normalizedStages=validateStages(stages);
-  if(!plan||!databaseSpecValid)return {ok:false,clarification:PLAN_FAILURE_TEXT,stages:[]};
+  const complete=plan&&typeof plan.problem==='string'&&plan.problem.trim()&&typeof plan.audience==='string'&&plan.audience.trim()&&typeof plan.outcome==='string'&&plan.outcome.trim()&&typeof plan.stack==='string'&&plan.stack.trim()&&typeof plan.dataFlow==='string'&&plan.dataFlow.trim()&&Array.isArray(plan.files)&&plan.files.length>0&&Array.isArray(plan.workflow)&&plan.workflow.length>0&&Array.isArray(plan.features)&&plan.features.length>0;
+  if(!complete||!databaseSpecValid)return {ok:false,clarification:PLAN_FAILURE_TEXT,stages:[]};
   if(complexity?.isComplex&&(normalizedStages.length<3||normalizedStages.length>4))return {ok:false,clarification:PLAN_FAILURE_TEXT,stages:[]};
   return {ok:true,stages:normalizedStages,clarification:''};
 }
