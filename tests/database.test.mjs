@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateDatabaseSpec, provisionProjectSchema } from '../database.mjs';
+import { validateDatabaseSpec, provisionProjectSchema } from './database.mjs';
 
 test('aceita schema de negócio limitado a tipos e identificadores permitidos', () => {
   assert.deepEqual(validateDatabaseSpec({tables:[{name:'contacts',columns:[{name:'email',type:'text',required:true},{name:'age',type:'integer'}]}]}), {tables:[{name:'contacts',columns:[{name:'email',type:'text',required:true},{name:'age',type:'integer',required:false}]}]});

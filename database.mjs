@@ -37,16 +37,20 @@ export async function provisionProjectSchema(sql, { projectId, projectName, spec
 
   // All identifiers/types are normalized by allow-lists above. Values remain parameterized.
   const statements = [`CREATE SCHEMA IF NOT EXISTS ${q(schema)}`];
+  const tableStatements = [];
   for (const table of safeSpec.tables) {
     const columns = table.columns.map(c => `${q(c.name)} ${SQL_TYPES[c.type]}${c.required ? ' NOT NULL' : ''}`).join(', ');
-    statements.push(`CREATE TABLE IF NOT EXISTS ${q(schema)}.${q(table.name)} ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "owner_id" uuid NOT NULL, "created_at" timestamptz NOT NULL DEFAULT now(), ${columns})`);
+    tableStatements.push(`CREATE TABLE IF NOT EXISTS ${q(schema)}.${q(table.name)} ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "owner_id" uuid NOT NULL, "created_at" timestamptz NOT NULL DEFAULT now(), ${columns})`);
     const policy = q(`${table.name}_owner_only`);
     const tablePath = `${q(schema)}.${q(table.name)}`;
-    statements.push(`ALTER TABLE ${tablePath} ENABLE ROW LEVEL SECURITY`);
-    statements.push(`ALTER TABLE ${tablePath} FORCE ROW LEVEL SECURITY`);
-    statements.push(`DROP POLICY IF EXISTS ${policy} ON ${tablePath}`);
-    statements.push(`CREATE POLICY ${policy} ON ${tablePath} USING ("owner_id" = NULLIF(current_setting('zr.user_id', true), '')::uuid) WITH CHECK ("owner_id" = NULLIF(current_setting('zr.user_id', true), '')::uuid)`);
+    tableStatements.push(`ALTER TABLE ${tablePath} ENABLE ROW LEVEL SECURITY`);
+    tableStatements.push(`ALTER TABLE ${tablePath} FORCE ROW LEVEL SECURITY`);
+    tableStatements.push(`DROP POLICY IF EXISTS ${policy} ON ${tablePath}`);
+    tableStatements.push(`CREATE POLICY ${policy} ON ${tablePath} USING ("owner_id" = NULLIF(current_setting('zr.user_id', true), '')::uuid) WITH CHECK ("owner_id" = NULLIF(current_setting('zr.user_id', true), '')::uuid)`);
   }
+  const createTables = tableStatements.filter(sqlText => sqlText.startsWith('CREATE TABLE IF NOT EXISTS '));
+  const policies = tableStatements.filter(sqlText => !sqlText.startsWith('CREATE TABLE IF NOT EXISTS '));
+  statements.push(...createTables, ...policies);
   const stored = JSON.stringify(safeSpec);
   const registry = `INSERT INTO zr_studio_control.app_databases (app_id, app_name, schema_name, schema_spec, status) VALUES ($1,$2,$3,$4::jsonb,'schema-provisioned') ON CONFLICT (app_id) DO UPDATE SET app_name=EXCLUDED.app_name, schema_name=EXCLUDED.schema_name, schema_spec=EXCLUDED.schema_spec, status=EXCLUDED.status, updated_at=now()`;
   // One non-interactive Postgres transaction prevents an interrupted schema build from leaving half-created tables/policies.
