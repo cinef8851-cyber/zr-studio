@@ -25,6 +25,11 @@ test('pergunta ao utilizador pausa sem inventar pressupostos', async()=>{
   assert.equal(result.status,'paused');assert.equal(result.reason,'awaiting_user');assert.equal(result.question,'Qual conta autorizada devo usar?');
 });
 
+test('a ferramenta de pergunta pausa imediatamente e regista a resposta pendente',async()=>{
+  let decisions=0;const result=await runAgentLoop({task:'falta escolher conta',clock:tick,decide:async()=>{decisions++;return{action:'tool',tool:'perguntar_utilizador',arguments:{question:'Qual conta autorizada devo usar?'}}},executeTool:async()=>({ok:true,pauseForUser:true,question:'Qual conta autorizada devo usar?',output:'Qual conta autorizada devo usar?'}),verify:async()=>({passed:false,mode:'unavailable'})});
+  assert.equal(decisions,1);assert.equal(result.status,'paused');assert.equal(result.reason,'awaiting_user');assert.equal(result.question,'Qual conta autorizada devo usar?');
+});
+
 test('limites de iterações e orçamento param sem declarar sucesso',async()=>{
   let calls=0;const r=await runAgentLoop({task:'inspeccionar',clock:tick,maxIterations:2,tokenBudget:1,decide:async()=>{calls++;return{action:'tool',tool:'listar_ficheiros',arguments:{},tokenEstimate:0}},executeTool:async()=>({ok:true,output:[]}),requireBuild:false,verify:async()=>({passed:true,mode:'plan-only'})});
   assert.equal(r.status,'paused');assert.equal(r.completed,false);assert.equal(calls,2);assert.equal(r.reason,'iteration_limit');
