@@ -282,7 +282,7 @@ const server = http.createServer(async (req, res) => {
       if(planningTimes.length>=5){res.writeHead(429,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'Limite de planeamentos atingido; aguarda um minuto.'}));return;}
       if(!process.env.GEMINI_API_KEY){res.writeHead(503,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'A chave da IA de planeamento não está configurada no servidor.'}));return;}
       let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>100_000){res.writeHead(413,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'O pedido/contexto excede o limite do planeador.'}));return;}}
-      const body=JSON.parse(raw||'{}');const idea=String(body.idea||'').trim().slice(0,6000);const kind=String(body.kind||'website').slice(0,80);
+      const body=JSON.parse(raw||'{}');const idea=String(body.idea||'').trim().slice(0,6000);const kind=String(body.kind||'website').slice(0,80);if(/micro[- ]?saas|app[- ]?project|aplica[cç][aã]o web|prot[oó]tipo de app|dashboard/i.test(kind)){res.writeHead(400,{...headers,'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({error:'O ZR Studio está focado em páginas de venda e sites; não planeia apps, SaaS nem dashboards.'}));return;}
       if(idea.length<3){res.writeHead(400,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'Escreve o que queres planear.'}));return;}
       const supplied=body.files&&typeof body.files==='object'&&!Array.isArray(body.files)?body.files:{};const context={};let contextBytes=0;
       for(const [name,value] of Object.entries(supplied).slice(0,25)){if(typeof name!=='string'||!/^[a-zA-Z0-9._/-]{1,100}$/.test(name)||name.startsWith('/')||name.split('/').some(x=>!x||x==='.'||x==='..')||typeof value!=='string')continue;const excerpt=value.slice(0,1200);if(contextBytes+excerpt.length>16_000)break;context[name]=excerpt;contextBytes+=excerpt.length;}
@@ -390,6 +390,7 @@ const server = http.createServer(async (req, res) => {
       if(ticket.complex&&(ticket.approvedStage!==0||String(body.stage||'')!==ticket.stages[0])){res.writeHead(409,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({error:'Build bloqueado: pedido complexo só pode avançar na Etapa 1 após aprovação explícita.'}));return;}
       if (idea.length < 3) { res.writeHead(400, { ...headers, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Escreve o que queres criar ou alterar.' })); return; }
       const kind = String(body.kind || 'website').slice(0,80);
+      if(/micro[- ]?saas|app[- ]?project|aplica[cç][aã]o web|prot[oó]tipo de app|dashboard/i.test(kind)){res.writeHead(400,{...headers,'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({error:'O ZR Studio cria páginas de venda e sites, não aplicações, SaaS nem dashboards.'}));return;}
       const generationTask=ticket.complex?`Implementa somente a Etapa 1 aprovada (${ticket.stages[0]}). Não implementar etapas futuras. Pedido amplo original como contexto: ${idea}`:idea;
       const originalHtml = String(body.currentHtml || '').slice(0,8_000_000);
       const currentFilesInput = body.currentFiles && typeof body.currentFiles === 'object' && !Array.isArray(body.currentFiles) ? body.currentFiles : null;
